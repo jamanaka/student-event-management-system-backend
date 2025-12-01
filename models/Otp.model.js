@@ -63,7 +63,6 @@ const OtpSchema = new mongoose.Schema({
 
 // Index for faster lookups
 OtpSchema.index({ email: 1, purpose: 1 });
-OtpSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
 // Pre-save middleware to set expiration (default: 10 minutes)
 OtpSchema.pre('save', function(next) {
