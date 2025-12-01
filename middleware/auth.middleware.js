@@ -156,7 +156,7 @@ const refreshToken = async (req, res, next) => {
             'INVALID_REFRESH_TOKEN'
         ));
     }
-};
+}; 
 
 module.exports = {
     protect,
