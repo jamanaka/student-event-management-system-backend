@@ -184,42 +184,44 @@ if (process.env.NODE_ENV === 'production' && process.env.EMAIL_HOST) {
             pass: process.env.EMAIL_PASSWORD
         }
     });
+    
+    // Verify transporter configuration (only in production)
+    transporter.verify()
+        .then(() => console.log('✅ Email service is ready'))
+        .catch(err => console.log('❌ Email service configuration error:', err.message));
 } else {
-    // Development: Log emails to console
-    transporter = nodemailer.createTransport({
-        host: 'smtp.ethereal.email',
-        port: 587,
-        auth: {
-            user: 'test@example.com',
-            pass: 'test'
+    // Development: Create a mock transporter
+    transporter = {
+        sendMail: async function(mailOptions) {
+            console.log('\n📧 EMAIL WOULD BE SENT (Development Mode):');
+            console.log('To:', mailOptions.to);
+            console.log('Subject:', mailOptions.subject);
+            console.log('From:', mailOptions.from);
+            console.log('HTML Preview:', mailOptions.html ? '✓ HTML Content' : 'No HTML');
+            console.log('---\n');
+            
+            // Return a mock response
+            return {
+                messageId: 'dev-' + Date.now(),
+                envelope: { from: mailOptions.from, to: [mailOptions.to] },
+                accepted: [mailOptions.to],
+                rejected: [],
+                pending: [],
+                response: '250 Mock email sent successfully'
+            };
         },
-        // This will log emails to console instead of sending
-        sendmail: true,
-        newline: 'unix',
-        path: '/usr/sbin/sendmail'
-    });
-
-    // Override sendMail for development
-    const originalSendMail = transporter.sendMail.bind(transporter);
-    transporter.sendMail = async function(mailOptions) {
-        console.log('\n📧 EMAIL WOULD BE SENT (Development Mode):');
-        console.log('To:', mailOptions.to);
-        console.log('Subject:', mailOptions.subject);
-        console.log('HTML Preview:', mailOptions.html ? '✓ HTML Content' : 'No HTML');
-        console.log('---\n');
         
-        // In development, simulate success
-        return {
-            messageId: 'dev-' + Date.now(),
-            previewUrl: 'https://example.com/dev-email-preview'
-        };
+        // Mock verify method for development
+        verify: function(callback) {
+            if (callback) {
+                callback(null, true);
+            }
+            return Promise.resolve(true);
+        }
     };
+    
+    console.log('📧 Email service running in development mode (emails logged to console)');
 }
-
-// Verify transporter configuration
-transporter.verify()
-    .then(() => console.log('✅ Email service is ready'))
-    .catch(err => console.log('❌ Email service configuration error:', err.message));
 
 /**
  * Send email function
@@ -241,7 +243,12 @@ const sendEmail = async (options) => {
 
         const info = await transporter.sendMail(mailOptions);
         
-        console.log(`📧 Email sent: ${info.messageId}`);
+        if (process.env.NODE_ENV === 'development') {
+            console.log(`📧 Email sent to: ${options.to}`);
+        } else {
+            console.log(`📧 Email sent: ${info.messageId}`);
+        }
+        
         return info;
         
     } catch (error) {
@@ -271,12 +278,7 @@ const sendEmail = async (options) => {
     }
 };
 
-/**
- * Send OTP email for registration
- * @param {string} to - Recipient email
- * @param {string} otpCode - OTP code
- * @param {string} userName - User's name
- */
+// All your template functions remain the same:
 const sendRegistrationOTP = async (to, otpCode, userName) => {
     const template = emailTemplates.registrationOTP(otpCode, userName);
     return sendEmail({
@@ -286,12 +288,6 @@ const sendRegistrationOTP = async (to, otpCode, userName) => {
     });
 };
 
-/**
- * Send password reset OTP email
- * @param {string} to - Recipient email
- * @param {string} otpCode - OTP code
- * @param {string} userName - User's name
- */
 const sendPasswordResetOTP = async (to, otpCode, userName) => {
     const template = emailTemplates.passwordResetOTP(otpCode, userName);
     return sendEmail({
@@ -301,12 +297,6 @@ const sendPasswordResetOTP = async (to, otpCode, userName) => {
     });
 };
 
-/**
- * Send event approval notification
- * @param {string} to - Organizer email
- * @param {string} eventTitle - Event title
- * @param {string} userName - Organizer name
- */
 const sendEventApprovalEmail = async (to, eventTitle, userName) => {
     const template = emailTemplates.eventApproved(eventTitle, userName);
     return sendEmail({
@@ -316,13 +306,6 @@ const sendEventApprovalEmail = async (to, eventTitle, userName) => {
     });
 };
 
-/**
- * Send event rejection notification
- * @param {string} to - Organizer email
- * @param {string} eventTitle - Event title
- * @param {string} userName - Organizer name
- * @param {string} reason - Rejection reason
- */
 const sendEventRejectionEmail = async (to, eventTitle, userName, reason) => {
     const template = emailTemplates.eventRejected(eventTitle, userName, reason);
     return sendEmail({
@@ -332,14 +315,6 @@ const sendEventRejectionEmail = async (to, eventTitle, userName, reason) => {
     });
 };
 
-/**
- * Send RSVP confirmation email
- * @param {string} to - Attendee email
- * @param {string} eventTitle - Event title
- * @param {string} eventDate - Event date
- * @param {string} eventTime - Event time
- * @param {string} userName - Attendee name
- */
 const sendRSVPConfirmationEmail = async (to, eventTitle, eventDate, eventTime, userName) => {
     const template = emailTemplates.rsvpConfirmation(eventTitle, eventDate, eventTime, userName);
     return sendEmail({

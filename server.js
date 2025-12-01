@@ -71,5 +71,4 @@ const server = http.createServer(app);
 server.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
   console.log("Allowed Origins:", allowedOrigins);
-  console.log("🔌 WebSocket server initialized");
 });
