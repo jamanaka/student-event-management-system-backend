@@ -34,14 +34,6 @@ router.post('/register',
 
 
 
-JWT_SECRET=your_super_secret_jwt_key_here
-JWT_EXPIRES_IN=7d
-JWT_REFRESH_SECRET=your_refresh_token_secret
-NODE_ENV=development
-
-
-
-
 
 Routes:
 auth.routes.js: /api/auth/*
