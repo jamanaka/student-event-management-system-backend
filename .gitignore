@@ -13,7 +13,7 @@ yarn-error.log*
 
 # OS-specific files
 .DS_Store
-Thumbs.db
+Thumbs.db  
 
 # Optional: ignore build output
 dist/
