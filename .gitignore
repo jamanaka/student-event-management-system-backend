@@ -1,5 +1,6 @@
-# Node modules
+# Node modules and dotenv
 node_modules/
+.env
 
 # Logs
 logs
@@ -7,9 +8,6 @@ logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-
-# dotenv environment variable files
-.env
 
 # OS-specific files
 .DS_Store
@@ -23,7 +21,6 @@ build/
 coverage/
 
 
-# Root .gitignore
 
 # Node backend
 /backend/node_modules/
