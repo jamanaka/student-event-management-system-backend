@@ -1,7 +1,7 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
-require("./connection/mongoDB"); 
+require("./connection/mongoDB");
 const cookieParser = require("cookie-parser");
 const morgan = require("morgan");
 const bodyParser = require("body-parser");
@@ -10,9 +10,9 @@ const sanitize = require("sanitize");
 const ErrorHandler = require("./middleware/errorHandler");
 
 // Import routes
-const authRoutes = require('./routes/auth.routes');
-const eventRoutes = require('./routes/event.routes');
-const rsvpRoutes = require('./routes/rsvp.routes');
+const authRoutes = require("./routes/auth.routes");
+const eventRoutes = require("./routes/event.routes");
+const rsvpRoutes = require("./routes/rsvp.routes");
 
 const app = express();
 
@@ -53,15 +53,14 @@ app.use((req, res, next) => {
 });
 
 // 2) ROUTES
-app.use('/api/auth', authRoutes);
-app.use('/api/events', eventRoutes);
+app.use("/api/auth", authRoutes);
+app.use("/api/events", eventRoutes);
 
 // Version 2: Separate RSVP routes
-app.use('/api/rsvp', rsvpRoutes);
+app.use("/api/rsvp", rsvpRoutes);
 
-// 4️⃣ Error handler
+// Error handler
 app.use(ErrorHandler);
-
 
 const PORT = process.env.PORT || 5000;
 
