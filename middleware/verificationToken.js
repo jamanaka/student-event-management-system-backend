@@ -4,11 +4,14 @@ const AppError = require("../utils/AppError"); // ✅ ADDED
 
 const verifyToken = (req, res, next) => {
   // Check both cookie AND Authorization header
-  const token = req.cookies.token || req.header("Authorization")?.replace("Bearer ", "");
+  const token =
+    req.cookies.token || req.header("Authorization")?.replace("Bearer ", "");
 
   if (!token) {
     // ✅ CHANGED: Using AppError
-    return next(new AppError("Unauthorized - No token provided", 401, "NO_TOKEN_PROVIDED"));
+    return next(
+      new AppError("Unauthorized - No token provided", 401, "NO_TOKEN_PROVIDED")
+    );
   }
 
   try {
@@ -19,7 +22,13 @@ const verifyToken = (req, res, next) => {
   } catch (error) {
     console.error("JWT verification error:", error.message);
     // ✅ CHANGED: Using AppError
-    return next(new AppError("Unauthorized - Invalid or expired token", 401, "INVALID_OR_EXPIRED_TOKEN"));
+    return next(
+      new AppError(
+        "Unauthorized - Invalid or expired token",
+        401,
+        "INVALID_OR_EXPIRED_TOKEN"
+      )
+    );
   }
 };
 
