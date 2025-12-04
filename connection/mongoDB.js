@@ -4,12 +4,16 @@ const AppError = require("../utils/AppError");
 
 const mongoDBConnection = mongoose
   .connect(process.env.MONGODBCONNECTIONSTRING)
-  .then(async () => { 
-    console.log("MongoDB Connected"); 
+  .then(async () => {
+    console.log("MongoDB Connected");
   })
   .catch((err) => {
     console.error("MongoDB connection error:", err);
-    throw new AppError("MongoDB connection failed", 500, "DATABASE_CONNECTION_ERROR");
+    throw new AppError(
+      "MongoDB connection failed",
+      500,
+      "DATABASE_CONNECTION_ERROR"
+    );
   });
 
 module.exports = mongoDBConnection;
