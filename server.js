@@ -1,23 +1,40 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
+const helmet = require("helmet");
 require("./connection/mongoDB");
 const cookieParser = require("cookie-parser");
 const morgan = require("morgan");
 const bodyParser = require("body-parser");
 const http = require("http");
-const sanitize = require("sanitize");
 const ErrorHandler = require("./middleware/errorHandler");
+const { apiLimiter } = require("./middleware/rateLimiter");
+const requestId = require("./middleware/requestId");
 
 // Import routes
 const authRoutes = require("./routes/auth.routes");
 const eventRoutes = require("./routes/event.routes");
 const rsvpRoutes = require("./routes/rsvp.routes");
+const adminRoutes = require("./routes/admin.routes");
 
 const app = express();
 
-app.use(bodyParser.json());
+// Request ID middleware (must be early)
+app.use(requestId);
+
+// Security headers
+app.use(helmet({
+  contentSecurityPolicy: false, // Allow inline styles/scripts for emails
+  crossOriginEmbedderPolicy: false,
+}));
+
+// Body parsing
+app.use(bodyParser.json({ limit: "10mb" }));
+app.use(bodyParser.urlencoded({ extended: true, limit: "10mb" }));
 app.use(cookieParser());
+
+// Rate limiting
+app.use("/api/", apiLimiter);
 
 if (process.env.NODE_ENV === "production") {
   app.use(morgan("combined"));
@@ -45,21 +62,80 @@ app.use(
   })
 );
 
+// Data sanitization - remove any keys that start with $ or contain .
+// This prevents NoSQL injection attacks
 app.use((req, res, next) => {
-  if (req.body) sanitize.sanitize(req.body);
-  if (req.query) sanitize.sanitize(req.query);
-  if (req.params) sanitize.sanitize(req.params);
-  next();
+  try {
+    const sanitizeObject = (obj) => {
+      if (!obj || typeof obj !== 'object' || obj === null) {
+        return;
+      }
+      
+      // Handle arrays
+      if (Array.isArray(obj)) {
+        obj.forEach(item => sanitizeObject(item));
+        return;
+      }
+      
+      // Handle regular objects
+      const keysToDelete = [];
+      Object.keys(obj).forEach(key => {
+        // Mark keys that start with $ (MongoDB operators) or contain . for deletion
+        if (key.startsWith('$') || key.includes('.')) {
+          keysToDelete.push(key);
+        } else if (typeof obj[key] === 'object' && obj[key] !== null) {
+          sanitizeObject(obj[key]);
+        }
+      });
+      
+      // Delete marked keys
+      keysToDelete.forEach(key => delete obj[key]);
+    };
+
+    if (req.body && typeof req.body === 'object') {
+      sanitizeObject(req.body);
+    }
+    if (req.query && typeof req.query === 'object') {
+      sanitizeObject(req.query);
+    }
+    if (req.params && typeof req.params === 'object') {
+      sanitizeObject(req.params);
+    }
+    
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Health check endpoint
+app.get("/api/health", (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: "Server is running",
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+  });
 });
 
 // 2) ROUTES
 app.use("/api/auth", authRoutes);
 app.use("/api/events", eventRoutes);
-
-// Version 2: Separate RSVP routes
 app.use("/api/rsvp", rsvpRoutes);
+app.use("/api/admin", adminRoutes);
 
-// Error handler
+// 404 handler
+app.use((req, res, next) => {
+  res.status(404).json({
+    success: false,
+    error: {
+      message: `Route ${req.originalUrl} not found`,
+      code: "ROUTE_NOT_FOUND",
+    },
+  });
+});
+
+// Error handler (must be last)
 app.use(ErrorHandler);
 
 const PORT = process.env.PORT || 5000;

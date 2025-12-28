@@ -59,20 +59,49 @@ const createEvent = async (req, res, next) => {
   }
 };
 
-// Get All Approved Events (Public)
+// Get All Events (Public - defaults to approved, Admin can filter by status)
 const getAllEvents = async (req, res, next) => {
   try {
     const {
       category,
-      status = "approved",
+      status,
       page = 1,
       limit = 10,
       sort = "date",
       search,
+      upcoming, // Optional filter for upcoming events only
     } = req.query;
 
     // Build query
-    const query = { status: "approved" };
+    // For public users, default to approved. For admins, allow filtering by any status
+    const isAdmin = req.userRole === "admin";
+    let queryStatus = status;
+    
+    // If no status provided or user is not admin, default to approved
+    if (!queryStatus || (!isAdmin && queryStatus !== "approved")) {
+      queryStatus = "approved";
+    }
+    
+    // Validate status against enum values from Event model
+    const validStatuses = ["pending", "approved", "rejected", "cancelled", "completed"];
+    if (queryStatus && !validStatuses.includes(queryStatus)) {
+      queryStatus = "approved";
+    }
+    
+    const query = { status: queryStatus };
+
+    // Filter by upcoming events only (future dates)
+    // Since date and time are stored separately, we compare dates without time
+    // Events are "upcoming" if their date is today or in the future
+    if (upcoming === "true" || upcoming === true || upcoming === "1") {
+      // Set to start of today (midnight) to include all events happening today or later
+      const todayStart = new Date();
+      todayStart.setHours(0, 0, 0, 0);
+      todayStart.setMinutes(0);
+      todayStart.setSeconds(0);
+      todayStart.setMilliseconds(0);
+      query.date = { $gte: todayStart };
+    }
 
     // Apply filters
     if (category && category !== "all") {
@@ -125,6 +154,8 @@ const getAllEvents = async (req, res, next) => {
       }
     }
 
+    console.log("Events, ", events);
+
     res.status(200).json({
       success: true,
       count: events.length,
@@ -161,12 +192,7 @@ const getEventById = async (req, res, next) => {
     const { id } = req.params;
 
     const event = await Event.findById(id)
-      .populate("createdBy", "firstName lastName email department")
-      .populate({
-        path: "attendees",
-        select: "firstName lastName email",
-        options: { limit: 20 },
-      });
+      .populate("createdBy", "firstName lastName email department");
 
     if (!event) {
       return next(new AppError("Event not found", 404, "EVENT_NOT_FOUND"));
@@ -187,15 +213,33 @@ const getEventById = async (req, res, next) => {
       );
     }
 
+    // Fetch attendees from RSVP model (only attending, not cancelled)
+    const attendeesRSVPs = await RSVP.find({ 
+      event: id, 
+      status: { $in: ['attending', 'waitlisted'] } 
+    })
+      .populate("user", "firstName lastName email")
+      .limit(20)
+      .sort({ createdAt: -1 });
+    
+    const attendees = attendeesRSVPs
+      .map(rsvp => rsvp.user)
+      .filter(user => user !== null);
+
     // Check if user has RSVPed
+    let hasRSVPed = false;
     if (req.userId) {
-      const hasRSVPed = await RSVP.hasRSVPed(event._id, req.userId);
+      hasRSVPed = await RSVP.hasRSVPed(event._id, req.userId);
       event._doc.hasRSVPed = hasRSVPed;
     }
 
+    // Add attendees to event object
+    const eventObj = event.toObject();
+    eventObj.attendees = attendees;
+
     res.status(200).json({
       success: true,
-      data: event,
+      data: eventObj,
     });
   } catch (error) {
     next(error);
@@ -272,7 +316,6 @@ const deleteEvent = async (req, res, next) => {
 const approveEvent = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { rejectionReason } = req.body;
 
     const event = await Event.findById(id);
 

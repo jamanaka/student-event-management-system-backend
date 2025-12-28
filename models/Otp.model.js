@@ -31,7 +31,7 @@ const OtpSchema = new mongoose.Schema(
     expiresAt: {
       type: Date,
       required: [true, "Expiration date is required"],
-      index: { expires: "5m" }, // Auto-delete after expiration
+      index: { expireAfterSeconds: 0 }, // Auto-delete when expiresAt passes
     },
 
     // Attempts Tracking (prevent brute force)
@@ -67,16 +67,7 @@ const OtpSchema = new mongoose.Schema(
 // Index for faster lookups
 OtpSchema.index({ email: 1, purpose: 1 });
 
-// Pre-save middleware to set expiration (default: 10 minutes)
-OtpSchema.pre("save", function (next) {
-  if (this.isNew) {
-    // Set expiration to 10 minutes from creation
-    const expiresAt = new Date();
-    expiresAt.setMinutes(expiresAt.getMinutes() + 10);
-    this.expiresAt = expiresAt;
-  }
-  next();
-});
+// Note: expiresAt is set directly in createOTP method, so no pre-save hook needed
 
 // Static method to generate OTP
 OtpSchema.statics.generateOTP = function (length = 6) {
@@ -101,12 +92,17 @@ OtpSchema.statics.createOTP = async function (
     // Generate new OTP
     const otpCode = this.generateOTP(6);
 
+    // Set expiration to 10 minutes from now
+    const expiresAt = new Date();
+    expiresAt.setMinutes(expiresAt.getMinutes() + 10);
+
     // Create and save OTP record
     const otp = new this({
       email,
       code: otpCode,
       purpose,
       userId,
+      expiresAt,
     });
 
     await otp.save();

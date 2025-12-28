@@ -68,19 +68,23 @@ const authValidations = {
       .withMessage("Password must contain at least one number"),
 
     body("studentId")
-      .optional()
       .trim()
-      .matches(/^[A-Za-z0-9\-]+$/)
-      .withMessage("Student ID can only contain letters, numbers, and hyphens"),
+      .notEmpty()
+      .withMessage("Student ID is required")
+      .matches(/^[A-Za-z0-9]+$/)
+      .withMessage("Student ID can only contain letters and numbers"),
 
     body("department")
-      .optional()
       .trim()
+      .notEmpty()
+      .withMessage("Department is required")
       .isLength({ max: 100 })
       .withMessage("Department name too long"),
 
     body("graduationYear")
-      .optional()
+      .notEmpty()
+      .withMessage("Graduation year is required")
+      .toInt()
       .isInt({ min: 2000, max: 2030 })
       .withMessage("Graduation year must be between 2000-2030"),
   ]),
@@ -114,6 +118,34 @@ const authValidations = {
       .withMessage("OTP must be 4-8 characters")
       .matches(/^\d+$/)
       .withMessage("OTP must contain only numbers"),
+  ]),
+
+  resendOTP: validate([
+    body("email")
+      .trim()
+      .notEmpty()
+      .withMessage("Email is required")
+      .isEmail()
+      .withMessage("Please provide a valid email")
+      .normalizeEmail(),
+  ]),
+
+  changePassword: validate([
+    body("currentPassword")
+      .notEmpty()
+      .withMessage("Current password is required"),
+
+    body("newPassword")
+      .notEmpty()
+      .withMessage("New password is required")
+      .isLength({ min: 6 })
+      .withMessage("Password must be at least 6 characters")
+      .matches(/[A-Z]/)
+      .withMessage("Password must contain at least one uppercase letter")
+      .matches(/[a-z]/)
+      .withMessage("Password must contain at least one lowercase letter")
+      .matches(/\d/)
+      .withMessage("Password must contain at least one number"),
   ]),
 };
 

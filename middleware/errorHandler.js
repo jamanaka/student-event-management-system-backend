@@ -2,7 +2,7 @@ const AppError = require("../utils/AppError");
 
 // Development error response - with stack traces
 const sendErrorDev = (err, res) => {
-  res.status(err.statusCode).json({
+  const errorResponse = {
     success: false,
     error: {
       message: err.message,
@@ -10,21 +10,38 @@ const sendErrorDev = (err, res) => {
       stack: err.stack,
       timestamp: new Date().toISOString(),
     },
-  });
+  };
+  
+  // Include validation details if available
+  if (err.details && Array.isArray(err.details)) {
+    errorResponse.error.details = err.details;
+  }
+  
+  res.status(err.statusCode).json(errorResponse);
 };
 
 // Production error response - user-friendly only
 const sendErrorProd = (err, res) => {
   // Operational, trusted error: send message to client
   if (err.isOperational) {
-    res.status(err.statusCode).json({
+    const errorResponse = {
       success: false,
       error: {
         message: err.message, // User-friendly message
         code: err.errorCode, // Technical code for debugging
         timestamp: new Date().toISOString(),
       },
-    });
+    };
+    
+    // Include validation details if available (for validation errors)
+    if (err.details && Array.isArray(err.details) && err.details.length > 0) {
+      // Format validation errors into a readable message
+      const validationMessages = err.details.map(detail => detail.message).join('. ');
+      errorResponse.error.message = `${err.message}: ${validationMessages}`;
+      errorResponse.error.details = err.details;
+    }
+    
+    res.status(err.statusCode).json(errorResponse);
   }
   // Programming or unknown error: don't leak details
   else {

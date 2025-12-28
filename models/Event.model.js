@@ -24,7 +24,11 @@ const EventSchema = new mongoose.Schema(
       required: [true, "Event date is required"],
       validate: {
         validator: function (value) {
-          return value > new Date(); // Event must be in the future
+          // Only validate if this is a new document (creation), not on updates
+          if (this.isNew) {
+            return value > new Date(); // Event must be in the future
+          }
+          return true; // Allow past dates for existing events
         },
         message: "Event date must be in the future",
       },
@@ -147,14 +151,24 @@ EventSchema.virtual("registrationOpen").get(function () {
 
 // Update timestamp on save
 EventSchema.pre("save", function (next) {
-  this.updatedAt = Date.now();
+  try {
+    this.updatedAt = Date.now();
 
-  // If event is cancelled, clear capacity
-  if (this.status === "cancelled") {
-    this.currentAttendees = 0;
+    // If event is cancelled, clear capacity
+    if (this.status === "cancelled") {
+      this.currentAttendees = 0;
+    }
+
+    if (next && typeof next === 'function') {
+      next();
+    }
+  } catch (error) {
+    if (next && typeof next === 'function') {
+      next(error);
+    } else {
+      throw error;
+    }
   }
-
-  next();
 });
 
 // Indexes for better query performance

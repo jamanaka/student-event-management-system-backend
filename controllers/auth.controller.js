@@ -34,6 +34,11 @@ const register = async (req, res, next) => {
       graduationYear,
     } = req.body;
 
+    // Ensure graduationYear is a number
+    const gradYear = typeof graduationYear === 'string' 
+      ? parseInt(graduationYear, 10) 
+      : graduationYear;
+
     // Check if user already exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
@@ -50,7 +55,7 @@ const register = async (req, res, next) => {
       password,
       studentId,
       department,
-      graduationYear,
+      graduationYear: gradYear,
       role: "student",
       isActive: false,
     });
@@ -71,6 +76,7 @@ const register = async (req, res, next) => {
       },
     });
   } catch (error) {
+    console.error("Registration error:", error);
     if (error.code === 11000) {
       return next(
         new AppError(
@@ -126,6 +132,38 @@ const verifyOTP = async (req, res, next) => {
           department: user.department,
         },
       },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Resend OTP for registration
+const resendOTP = async (req, res, next) => {
+  try {
+    const { email } = req.body;
+
+    // Check if user exists and is not yet activated
+    const user = await User.findOne({ email });
+    if (!user) {
+      return next(
+        new AppError("User not found", 404, "USER_NOT_FOUND")
+      );
+    }
+
+    if (user.isActive) {
+      return next(
+        new AppError("Account is already verified", 400, "ACCOUNT_ALREADY_ACTIVE")
+      );
+    }
+
+    // Generate and send new OTP
+    const otpCode = await OTP.createOTP(email, "registration", user._id);
+    await sendRegistrationOTP(email, otpCode, `${user.firstName} ${user.lastName}`);
+
+    res.status(200).json({
+      success: true,
+      message: "OTP resent successfully. Please check your email.",
     });
   } catch (error) {
     next(error);
@@ -341,6 +379,39 @@ const refreshToken = async (req, res, next) => {
   }
 };
 
+// Change Password (when logged in)
+const changePassword = async (req, res, next) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    const userId = req.userId;
+
+    // Get user with password
+    const user = await User.findById(userId).select("+password");
+    if (!user) {
+      return next(new AppError("User not found", 404, "USER_NOT_FOUND"));
+    }
+
+    // Verify current password
+    const isPasswordValid = await user.comparePassword(currentPassword);
+    if (!isPasswordValid) {
+      return next(
+        new AppError("Current password is incorrect", 401, "INVALID_PASSWORD")
+      );
+    }
+
+    // Update password
+    user.password = newPassword;
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Password changed successfully",
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // Logout
 const logout = (req, res) => {
   res.status(200).json({
@@ -352,11 +423,13 @@ const logout = (req, res) => {
 module.exports = {
   register,
   verifyOTP,
+  resendOTP,
   login,
   getCurrentUser,
   requestPasswordReset,
   resetPassword,
   updateProfile,
+  changePassword,
   refreshToken,
   logout,
 };

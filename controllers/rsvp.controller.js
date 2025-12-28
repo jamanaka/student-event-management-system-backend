@@ -1,5 +1,6 @@
 const RSVP = require("../models/RSVP.model");
 const Event = require("../models/Event.model");
+const User = require("../models/User.model");
 const AppError = require("../utils/AppError");
 const { sendRSVPConfirmationEmail } = require("../utils/emailService");
 
