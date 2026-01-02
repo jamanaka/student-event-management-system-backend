@@ -58,68 +58,122 @@ RSVPSchema.index({ event: 1, status: 1 }); // For event attendee queries
 RSVPSchema.index({ status: 1 }); // For filtering by status
 RSVPSchema.index({ createdAt: -1 }); // For sorting by creation date
 
-// Update timestamp on save
-RSVPSchema.pre("save", function (next) {
-  this.updatedAt = Date.now();
-  next();
-});
-
-// Pre-save middleware to update event's currentAttendees
-RSVPSchema.pre("save", async function (next) {
+// Combined pre-save middleware: update timestamp AND event attendees
+// FIXED: Properly handle all status changes and guest count updates
+RSVPSchema.pre("save", async function () {
   try {
+    // Update timestamp
+    this.updatedAt = Date.now();
+    
+    // Update event attendees count
     const Event = mongoose.model("Event");
+    const totalPeople = 1 + (this.numberOfGuests || 0);
 
     if (this.isNew) {
-      // New RSVP - increment event attendees
-      await Event.findByIdAndUpdate(this.event, {
-        $inc: { currentAttendees: 1 + this.numberOfGuests },
-      });
-    } else if (this.isModified("status") && this.status === "cancelled") {
-      // RSVP cancelled - decrement event attendees
-      await Event.findByIdAndUpdate(this.event, {
-        $inc: { currentAttendees: -(1 + this.numberOfGuests) },
-      });
-    } else if (this.isModified("numberOfGuests")) {
-      // Guests count changed - calculate difference
-      const original = await this.constructor.findById(this._id);
-      const guestDiff =
-        this.numberOfGuests - (original ? original.numberOfGuests : 0);
-
-      if (guestDiff !== 0) {
+      // New RSVP - only increment if status is attending
+      if (this.status === "attending") {
         await Event.findByIdAndUpdate(this.event, {
-          $inc: { currentAttendees: guestDiff },
+          $inc: { currentAttendees: totalPeople },
         });
       }
-    }
+    } else {
+      // Existing RSVP - get original values
+      const original = await this.constructor.findById(this._id);
+      if (!original) {
+        // Document was deleted, skip
+        return;
+      }
 
-    next();
+      const originalTotalPeople = 1 + (original.numberOfGuests || 0);
+      const originalStatus = original.status;
+      const newStatus = this.status;
+
+      // Handle status changes
+      if (this.isModified("status")) {
+        // Status changed from attending to cancelled/waitlisted
+        if (originalStatus === "attending" && newStatus !== "attending") {
+          await Event.findByIdAndUpdate(this.event, {
+            $inc: { currentAttendees: -originalTotalPeople },
+          });
+        }
+        // Status changed from cancelled/waitlisted to attending
+        else if (originalStatus !== "attending" && newStatus === "attending") {
+          await Event.findByIdAndUpdate(this.event, {
+            $inc: { currentAttendees: totalPeople },
+          });
+        }
+        // Status changed between non-attending statuses (no change to count)
+      }
+
+      // Handle guest count changes (only if status is attending)
+      if (this.isModified("numberOfGuests") && this.status === "attending") {
+        const guestDiff = this.numberOfGuests - (original.numberOfGuests || 0);
+        if (guestDiff !== 0) {
+          await Event.findByIdAndUpdate(this.event, {
+            $inc: { currentAttendees: guestDiff },
+          });
+        }
+      }
+    }
+    // For async hooks in Mongoose, just return normally (no next callback needed)
   } catch (error) {
-    next(error);
+    // For async hooks, throw error (Mongoose will handle it)
+    throw error;
   }
 });
 
 // Pre-remove middleware to update event's currentAttendees
+// FIXED: Properly handle removal of attending RSVPs
 RSVPSchema.pre("remove", async function (next) {
   try {
     const Event = mongoose.model("Event");
 
-    // If RSVP was attending (not cancelled), decrement attendees
-    if (this.status === "attending") {
+    // If RSVP was attending or waitlisted, decrement attendees
+    // (waitlisted might have been counted if system allows it)
+    if (this.status === "attending" || this.status === "waitlisted") {
+      const totalPeople = 1 + (this.numberOfGuests || 0);
       await Event.findByIdAndUpdate(this.event, {
-        $inc: { currentAttendees: -(1 + this.numberOfGuests) },
+        $inc: { currentAttendees: -totalPeople },
       });
     }
 
-    next();
+    // For async hooks: if next exists, call it; otherwise just return
+    if (next && typeof next === 'function') {
+      next();
+    }
   } catch (error) {
-    next(error);
+    // For async hooks: if next exists, call it with error; otherwise throw
+    if (next && typeof next === 'function') {
+      next(error);
+    } else {
+      throw error;
+    }
   }
 });
 
-// Static method to check if user has RSVP'd to an event
+// Static method to check if user has RSVP'd to an event (any status)
 RSVPSchema.statics.hasRSVPed = async function (eventId, userId) {
   const rsvp = await this.findOne({ event: eventId, user: userId });
   return !!rsvp && rsvp.status === "attending";
+};
+
+// Static method to get user's RSVP for an event (any status)
+RSVPSchema.statics.getUserRSVP = async function (eventId, userId) {
+  return await this.findOne({ event: eventId, user: userId });
+};
+
+// Static method to calculate actual attendee count from RSVPs
+RSVPSchema.statics.getActualAttendeeCount = async function (eventId) {
+  const eventObjectId = typeof eventId === 'string' ? new mongoose.Types.ObjectId(eventId) : eventId;
+  const result = await this.aggregate([
+    { $match: { event: eventObjectId, status: 'attending' } },
+    { $group: { 
+        _id: null, 
+        total: { $sum: { $add: [1, { $ifNull: ['$numberOfGuests', 0] }] } } 
+      } 
+    }
+  ]);
+  return result.length > 0 ? result[0].total : 0;
 };
 
 // Static method to get event RSVP count

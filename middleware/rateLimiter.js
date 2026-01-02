@@ -1,9 +1,10 @@
 const rateLimit = require("express-rate-limit");
 
 // General API rate limiter
+// More lenient limits for normal usage
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
+  max: process.env.NODE_ENV === 'production' ? 500 : 1000, // Higher limits: 500 in prod, 1000 in dev
   message: {
     success: false,
     error: {
@@ -15,7 +16,18 @@ const apiLimiter = rateLimit({
   legacyHeaders: false,
   skip: (req) => {
     // Skip rate limiting for OPTIONS requests (CORS preflight)
-    return req.method === 'OPTIONS';
+    if (req.method === 'OPTIONS') {
+      return true;
+    }
+    // Skip rate limiting for health check endpoint
+    if (req.path === '/api/health') {
+      return true;
+    }
+    // In development, be more lenient
+    if (process.env.NODE_ENV === 'development') {
+      return false; // Still apply, but with higher limit
+    }
+    return false;
   },
 });
 

@@ -224,6 +224,15 @@ const getEventById = async (req, res, next) => {
       .map(rsvp => rsvp.user)
       .filter(user => user !== null);
 
+    // Recalculate currentAttendees from actual RSVPs to ensure accuracy
+    const actualCount = await RSVP.getActualAttendeeCount(event._id);
+    
+    // Update event's currentAttendees if it's out of sync (only update if different to avoid unnecessary writes)
+    if (event.currentAttendees !== actualCount) {
+      await Event.findByIdAndUpdate(event._id, { currentAttendees: actualCount });
+      event.currentAttendees = actualCount;
+    }
+
     // Check if user has RSVPed
     let hasRSVPed = false;
     if (req.userId) {
@@ -234,6 +243,7 @@ const getEventById = async (req, res, next) => {
     // Add attendees to event object
     const eventObj = event.toObject();
     eventObj.attendees = attendees;
+    eventObj.currentAttendees = actualCount; // Use the recalculated count
 
     res.status(200).json({
       success: true,
@@ -326,6 +336,24 @@ const approveEvent = async (req, res, next) => {
 
     await event.save();
     await event.populate("createdBy", "email firstName lastName");
+
+    // Automatically create RSVP for event creator (they're organizing, so they're attending)
+    try {
+      const existingRSVP = await RSVP.getUserRSVP(id, event.createdBy._id);
+      if (!existingRSVP) {
+        const creatorRSVP = new RSVP({
+          event: id,
+          user: event.createdBy._id,
+          numberOfGuests: 0,
+          status: "attending",
+        });
+        await creatorRSVP.save();
+      }
+    } catch (rsvpError) {
+      // If RSVP creation fails, log but don't fail the approval
+      console.error("Failed to auto-RSVP event creator:", rsvpError);
+      // Continue with approval even if RSVP creation fails
+    }
 
     await sendEventApprovalEmail(
       event.createdBy.email,

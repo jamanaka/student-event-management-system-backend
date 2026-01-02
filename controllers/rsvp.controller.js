@@ -17,6 +17,12 @@ const addRSVP = async (req, res, next) => {
       return next(new AppError("Event not found", 404, "EVENT_NOT_FOUND"));
     }
 
+    // Check if user is the event creator
+    const isEventCreator = event.createdBy.toString() === userId;
+    
+    // Event creators can RSVP to their own events (they're organizing it, so they're attending)
+    // This allows them to bring guests and be counted in the attendee list
+
     // Check if event is approved
     if (event.status !== "approved") {
       return next(
@@ -35,30 +41,56 @@ const addRSVP = async (req, res, next) => {
       );
     }
 
-    // Check if event is full
+    // Get actual attendee count from RSVPs (more accurate than currentAttendees field)
+    const actualAttendeeCount = await RSVP.getActualAttendeeCount(eventId);
     const totalGuests = 1 + parseInt(numberOfGuests);
-    if (event.currentAttendees + totalGuests > event.capacity) {
+    
+    // Check if event is full
+    if (actualAttendeeCount + totalGuests > event.capacity) {
       return next(new AppError("Event is at full capacity", 400, "EVENT_FULL"));
     }
 
-    // Check if already RSVPed
-    const existingRSVP = await RSVP.findOne({
-      event: eventId,
-      user: userId,
-      status: "attending",
-    });
+    // Check if user already has an RSVP (any status)
+    const existingRSVP = await RSVP.getUserRSVP(eventId, userId);
 
     if (existingRSVP) {
-      return next(
-        new AppError(
-          "You have already RSVPed to this event",
-          400,
-          "ALREADY_RSVPED"
-        )
+      // If already attending, return error
+      if (existingRSVP.status === "attending") {
+        return next(
+          new AppError(
+            "You have already RSVPed to this event",
+            400,
+            "ALREADY_RSVPED"
+          )
+        );
+      }
+      // If cancelled or waitlisted, update to attending
+      existingRSVP.status = "attending";
+      existingRSVP.numberOfGuests = parseInt(numberOfGuests);
+      existingRSVP.dietaryPreferences = dietaryPreferences;
+      await existingRSVP.save();
+      
+      // Populate and return
+      await existingRSVP.populate("user", "firstName lastName email");
+      await existingRSVP.populate("event", "title date location");
+
+      const user = await User.findById(userId);
+      await sendRSVPConfirmationEmail(
+        user.email,
+        event.title,
+        event.date.toLocaleDateString(),
+        event.time,
+        user.firstName
       );
+
+      return res.status(200).json({
+        success: true,
+        message: "RSVP reactivated successfully",
+        data: existingRSVP,
+      });
     }
 
-    // Create RSVP
+    // Create new RSVP
     const rsvp = new RSVP({
       event: eventId,
       user: userId,
@@ -101,26 +133,37 @@ const addRSVP = async (req, res, next) => {
   }
 };
 
-// Remove RSVP
+// Remove RSVP (cancel it, don't delete to maintain history)
 const removeRSVP = async (req, res, next) => {
   try {
     const { eventId } = req.params;
     const userId = req.userId;
 
-    // Find and delete RSVP
-    const rsvp = await RSVP.findOneAndDelete({
+    // Find RSVP (any status, but we'll only cancel if attending or waitlisted)
+    const rsvp = await RSVP.findOne({
       event: eventId,
       user: userId,
-      status: "attending",
     });
 
     if (!rsvp) {
       return next(new AppError("RSVP not found", 404, "RSVP_NOT_FOUND"));
     }
 
+    // If already cancelled, return success
+    if (rsvp.status === "cancelled") {
+      return res.status(200).json({
+        success: true,
+        message: "RSVP already cancelled",
+      });
+    }
+
+    // Update status to cancelled (pre-save hook will handle attendee count)
+    rsvp.status = "cancelled";
+    await rsvp.save();
+
     res.status(200).json({
       success: true,
-      message: "RSVP removed successfully",
+      message: "RSVP cancelled successfully",
     });
   } catch (error) {
     next(error);
@@ -175,51 +218,115 @@ const getEventAttendees = async (req, res, next) => {
 const getUserRSVPs = async (req, res, next) => {
   try {
     const userId = req.userId;
-    const { page = 1, limit = 10, status = "upcoming" } = req.query;
+    const { page = 1, limit = 100, status } = req.query; // Don't default status - let frontend filter
 
-    // Build query
+    console.log('[getUserRSVPs] Request received:', { userId, page, limit, status });
+
+    // Build query - get all attending RSVPs for the user
     const query = { user: userId, status: "attending" };
+    console.log('[getUserRSVPs] Query:', JSON.stringify(query));
 
-    // Pagination
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-
-    // Get RSVPs with event details
-    const rsvps = await RSVP.find(query)
+    // Get all RSVPs with event details (no date filtering in populate)
+    const allRSVPs = await RSVP.find(query)
       .populate({
         path: "event",
-        match:
-          status === "past"
-            ? { date: { $lt: new Date() } }
-            : { date: { $gte: new Date() } },
-        select:
-          "title date time location category status currentAttendees capacity",
+        select: "title description date time location category status currentAttendees capacity imageUrl createdBy",
       })
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(parseInt(limit));
+      .sort({ createdAt: -1 });
 
-    // Filter out RSVPs where event doesn't match status
-    const filteredRSVPs = rsvps.filter((rsvp) => rsvp.event);
+    console.log('[getUserRSVPs] Found RSVPs:', allRSVPs.length);
+    console.log('[getUserRSVPs] RSVP details:', allRSVPs.map(r => ({
+      id: r._id,
+      eventId: r.event?._id || r.event,
+      eventTitle: r.event?.title || 'NO EVENT',
+      eventDate: r.event?.date,
+      eventTime: r.event?.time,
+      hasEvent: !!r.event,
+      numberOfGuests: r.numberOfGuests
+    })));
+
+    // Filter RSVPs based on event date in application logic
+    const now = new Date();
+    let filteredRSVPs = allRSVPs.filter((rsvp) => {
+      if (!rsvp.event) {
+        console.log('[getUserRSVPs] Filtering out RSVP with no event:', rsvp._id);
+        return false; // Filter out if event was deleted
+      }
+      
+      // Handle date - it might be a Date object or a string
+      let eventDate = rsvp.event.date;
+      if (eventDate instanceof Date) {
+        // If it's a Date object, format it as YYYY-MM-DD
+        const year = eventDate.getFullYear();
+        const month = String(eventDate.getMonth() + 1).padStart(2, '0');
+        const day = String(eventDate.getDate()).padStart(2, '0');
+        eventDate = `${year}-${month}-${day}`;
+      } else if (typeof eventDate === 'string') {
+        // If it's a string, extract just the date part (YYYY-MM-DD)
+        eventDate = eventDate.split('T')[0];
+      }
+      
+      // Combine date and time for accurate comparison
+      const eventDateTime = new Date(`${eventDate}T${rsvp.event.time || '00:00'}`);
+      
+      if (isNaN(eventDateTime.getTime())) {
+        console.error('[getUserRSVPs] Invalid date created:', { 
+          eventId: rsvp.event._id, 
+          originalDate: rsvp.event.date, 
+          formattedDate: eventDate, 
+          time: rsvp.event.time 
+        });
+        return false; // Filter out invalid dates
+      }
+      
+      // If no status filter, return all (frontend will filter)
+      if (!status) {
+        console.log('[getUserRSVPs] No status filter, including all:', { eventId: rsvp.event._id });
+        return true;
+      }
+      
+      if (status === "past") {
+        const isPast = eventDateTime < now;
+        console.log('[getUserRSVPs] Past check:', { eventId: rsvp.event._id, eventDateTime, now, isPast });
+        return isPast;
+      } else if (status === "upcoming") {
+        // "upcoming" - include events happening today or in the future
+        const isUpcoming = eventDateTime >= now;
+        console.log('[getUserRSVPs] Upcoming check:', { eventId: rsvp.event._id, eventDateTime, now, isUpcoming });
+        return isUpcoming;
+      } else {
+        // Unknown status, return all
+        return true;
+      }
+    });
+
+    console.log('[getUserRSVPs] Filtered RSVPs:', filteredRSVPs.length);
+
+    // Apply pagination after filtering
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const paginatedRSVPs = filteredRSVPs.slice(skip, skip + parseInt(limit));
 
     // Get total count
-    const totalQuery = { user: userId, status: "attending" };
-    if (status === "past") {
-      totalQuery["event.date"] = { $lt: new Date() };
-    } else {
-      totalQuery["event.date"] = { $gte: new Date() };
-    }
+    const total = filteredRSVPs.length;
 
-    const total = await RSVP.countDocuments(totalQuery);
-
-    res.status(200).json({
-      success: true,
-      count: filteredRSVPs.length,
+    console.log('[getUserRSVPs] Response:', {
+      count: paginatedRSVPs.length,
       total,
       totalPages: Math.ceil(total / parseInt(limit)),
       currentPage: parseInt(page),
-      data: filteredRSVPs,
+      dataCount: paginatedRSVPs.length
+    });
+
+    res.status(200).json({
+      success: true,
+      count: paginatedRSVPs.length,
+      total,
+      totalPages: Math.ceil(total / parseInt(limit)),
+      currentPage: parseInt(page),
+      data: paginatedRSVPs,
     });
   } catch (error) {
+    console.error('[getUserRSVPs] Error:', error);
     next(error);
   }
 };
@@ -230,16 +337,17 @@ const checkRSVPStatus = async (req, res, next) => {
     const { eventId } = req.params;
     const userId = req.userId;
 
-    const rsvp = await RSVP.findOne({
-      event: eventId,
-      user: userId,
-      status: "attending",
-    }).populate("event", "title date location");
+    // Get user's RSVP (any status)
+    const rsvp = await RSVP.getUserRSVP(eventId, userId);
+    
+    if (rsvp) {
+      await rsvp.populate("event", "title date location");
+    }
 
     res.status(200).json({
       success: true,
       data: {
-        hasRSVPed: !!rsvp,
+        hasRSVPed: !!rsvp && rsvp.status === "attending",
         rsvp: rsvp || null,
       },
     });
@@ -248,30 +356,57 @@ const checkRSVPStatus = async (req, res, next) => {
   }
 };
 
-// Update RSVP (e.g., change number of guests)
+// Update RSVP (e.g., change number of guests or reactivate cancelled RSVP)
 const updateRSVP = async (req, res, next) => {
   try {
     const { eventId } = req.params;
-    const { numberOfGuests, dietaryPreferences } = req.body;
+    const { numberOfGuests, dietaryPreferences, status } = req.body;
     const userId = req.userId;
 
-    // Find RSVP
-    const rsvp = await RSVP.findOne({
-      event: eventId,
-      user: userId,
-      status: "attending",
-    });
+    // Find RSVP (any status)
+    const rsvp = await RSVP.getUserRSVP(eventId, userId);
 
     if (!rsvp) {
       return next(new AppError("RSVP not found", 404, "RSVP_NOT_FOUND"));
     }
 
-    // Check capacity if updating guests
-    if (numberOfGuests !== undefined) {
-      const event = await Event.findById(eventId);
-      const guestDiff = parseInt(numberOfGuests) - rsvp.numberOfGuests;
+    const event = await Event.findById(eventId);
+    if (!event) {
+      return next(new AppError("Event not found", 404, "EVENT_NOT_FOUND"));
+    }
 
-      if (event.currentAttendees + guestDiff > event.capacity) {
+    // Handle status change (e.g., reactivating cancelled RSVP)
+    if (status !== undefined && status !== rsvp.status) {
+      if (status === "attending") {
+        // Check capacity before reactivating
+        const actualAttendeeCount = await RSVP.getActualAttendeeCount(eventId);
+        const totalGuests = 1 + (parseInt(numberOfGuests) || rsvp.numberOfGuests || 0);
+        
+        if (actualAttendeeCount + totalGuests > event.capacity) {
+          return next(
+            new AppError(
+              "Cannot reactivate RSVP, event is at full capacity",
+              400,
+              "CAPACITY_EXCEEDED"
+            )
+          );
+        }
+      }
+      rsvp.status = status;
+    }
+
+    // Check capacity if updating guests (only if attending)
+    if (numberOfGuests !== undefined && rsvp.status === "attending") {
+      const newGuestCount = parseInt(numberOfGuests);
+      const guestDiff = newGuestCount - (rsvp.numberOfGuests || 0);
+      
+      // Get actual count excluding this RSVP's current contribution
+      const actualAttendeeCount = await RSVP.getActualAttendeeCount(eventId);
+      const currentContribution = 1 + (rsvp.numberOfGuests || 0);
+      const countWithoutThisRSVP = actualAttendeeCount - currentContribution;
+      const newTotal = countWithoutThisRSVP + 1 + newGuestCount;
+
+      if (newTotal > event.capacity) {
         return next(
           new AppError(
             "Cannot add guests, event would exceed capacity",
@@ -281,7 +416,7 @@ const updateRSVP = async (req, res, next) => {
         );
       }
 
-      rsvp.numberOfGuests = parseInt(numberOfGuests);
+      rsvp.numberOfGuests = newGuestCount;
     }
 
     if (dietaryPreferences !== undefined) {

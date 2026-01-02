@@ -4,14 +4,8 @@ const { body, param, query, validationResult } = require("express-validator");
 // Validation middleware
 const validate = (validations) => {
   return async (req, res, next) => {
-    // #region agent log
-    fetch('http://127.0.0.1:7243/ingest/27ef663c-654d-4526-a1e9-cc23ba613f19',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'validation.middleware.js:6',message:'Validation middleware entry',data:{nextType:typeof next,nextIsFunction:typeof next==='function',validationsCount:validations.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
-    // #endregion
     // Ensure next is a function
     if (typeof next !== 'function') {
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/27ef663c-654d-4526-a1e9-cc23ba613f19',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'validation.middleware.js:10',message:'ERROR: next is not a function',data:{nextType:typeof next,nextValue:next},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H1'})}).catch(()=>{});
-      // #endregion
       console.error('Validation middleware: next is not a function', typeof next);
       return res.status(500).json({
         success: false,
@@ -20,20 +14,11 @@ const validate = (validations) => {
     }
 
     try {
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/27ef663c-654d-4526-a1e9-cc23ba613f19',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'validation.middleware.js:20',message:'Before running validations',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H3'})}).catch(()=>{});
-      // #endregion
       // Run all validations
       await Promise.all(validations.map((validation) => validation.run(req)));
 
       const errors = validationResult(req);
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/27ef663c-654d-4526-a1e9-cc23ba613f19',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'validation.middleware.js:25',message:'After validations, checking errors',data:{errorsCount:errors.array().length,isEmpty:errors.isEmpty()},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H3'})}).catch(()=>{});
-      // #endregion
       if (errors.isEmpty()) {
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/27ef663c-654d-4526-a1e9-cc23ba613f19',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'validation.middleware.js:28',message:'Calling next() - validation passed',data:{nextType:typeof next},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H4'})}).catch(()=>{});
-        // #endregion
         return next();
       }
 
@@ -44,9 +29,6 @@ const validate = (validations) => {
         value: err.value,
       }));
 
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/27ef663c-654d-4526-a1e9-cc23ba613f19',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'validation.middleware.js:40',message:'Calling next() with validation error',data:{errorsCount:formattedErrors.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H4'})}).catch(()=>{});
-      // #endregion
       return next(
         new AppError(
           "Validation failed",
@@ -56,9 +38,15 @@ const validate = (validations) => {
         )
       );
     } catch (error) {
-      // #region agent log
-      fetch('http://127.0.0.1:7243/ingest/27ef663c-654d-4526-a1e9-cc23ba613f19',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'validation.middleware.js:50',message:'Catch block - calling next() with error',data:{errorMessage:error.message,nextType:typeof next},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'H3'})}).catch(()=>{});
-      // #endregion
+      if (typeof next !== 'function') {
+        return res.status(500).json({
+          success: false,
+          error: {
+            message: 'Internal server error: next is not a function',
+            code: 'MIDDLEWARE_ERROR'
+          }
+        });
+      }
       return next(error);
     }
   };
