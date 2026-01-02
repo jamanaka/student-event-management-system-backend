@@ -52,6 +52,12 @@ const RSVPSchema = new mongoose.Schema(
 // Compound unique index to prevent duplicate RSVPs
 RSVPSchema.index({ event: 1, user: 1 }, { unique: true });
 
+// Additional indexes for better query performance
+RSVPSchema.index({ user: 1, createdAt: -1 }); // For user's RSVPs list
+RSVPSchema.index({ event: 1, status: 1 }); // For event attendee queries
+RSVPSchema.index({ status: 1 }); // For filtering by status
+RSVPSchema.index({ createdAt: -1 }); // For sorting by creation date
+
 // Update timestamp on save
 RSVPSchema.pre("save", function (next) {
   this.updatedAt = Date.now();

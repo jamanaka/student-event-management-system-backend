@@ -22,6 +22,52 @@ const app = express();
 // Request ID middleware (must be early)
 app.use(requestId);
 
+// CORS configuration (must be before other middleware to handle preflight requests)
+const allowedOrigins = [
+  process.env.FRONTEND_LOCAL_URL,
+  process.env.FRONTEND_PROD_URL,
+  "http://localhost:3000", // Default React dev server
+  "http://127.0.0.1:3000", // Alternative localhost
+].filter(Boolean); // Remove undefined values
+
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      // Allow requests with no origin (like mobile apps, Postman, or curl)
+      if (!origin) {
+        return callback(null, true);
+      }
+      
+      // In development, allow localhost origins
+      if (process.env.NODE_ENV === "development") {
+        if (origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:")) {
+          return callback(null, true);
+        }
+      }
+      
+      // Check against allowed origins
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        console.log("CORS blocked request from:", origin);
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Requested-With",
+      "X-Refresh-Token",
+      "Accept",
+      "Origin",
+    ],
+    exposedHeaders: ["x-new-token"],
+    optionsSuccessStatus: 200, // Some legacy browsers (IE11, various SmartTVs) choke on 204
+  })
+);
+
 // Security headers
 app.use(helmet({
   contentSecurityPolicy: false, // Allow inline styles/scripts for emails
@@ -41,26 +87,6 @@ if (process.env.NODE_ENV === "production") {
 } else {
   app.use(morgan("dev"));
 }
-
-const allowedOrigins = [
-  process.env.FRONTEND_LOCAL_URL,
-  process.env.FRONTEND_PROD_URL,
-];
-
-app.use(
-  cors({
-    origin: function (origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        console.log("CORS blocked request from:", origin);
-        callback(new Error("Not allowed by CORS"));
-      }
-    },
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
-  })
-);
 
 // Data sanitization - remove any keys that start with $ or contain .
 // This prevents NoSQL injection attacks

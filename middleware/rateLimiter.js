@@ -13,6 +13,10 @@ const apiLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => {
+    // Skip rate limiting for OPTIONS requests (CORS preflight)
+    return req.method === 'OPTIONS';
+  },
 });
 
 // Strict rate limiter for auth endpoints

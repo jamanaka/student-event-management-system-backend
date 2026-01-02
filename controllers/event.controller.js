@@ -154,8 +154,6 @@ const getAllEvents = async (req, res, next) => {
       }
     }
 
-    console.log("Events, ", events);
-
     res.status(200).json({
       success: true,
       count: events.length,
