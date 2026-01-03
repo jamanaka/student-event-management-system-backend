@@ -10,6 +10,18 @@ const addRSVP = async (req, res, next) => {
     const { eventId } = req.params;
     const { numberOfGuests = 0, dietaryPreferences } = req.body;
     const userId = req.userId;
+    const userRole = req.userRole;
+
+    // Admins cannot RSVP to events
+    if (userRole === "admin") {
+      return next(
+        new AppError(
+          "Administrators cannot RSVP to events",
+          403,
+          "ADMIN_CANNOT_RSVP"
+        )
+      );
+    }
 
     // Find event
     const event = await Event.findById(eventId);

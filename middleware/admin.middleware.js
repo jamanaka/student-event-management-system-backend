@@ -54,8 +54,18 @@ const restrictToOwnerOrAdmin = (
       }
 
       // Check if user is admin or owner
-      const createdById = document.createdBy?._id || document.createdBy;
-      const isOwner = createdById && createdById.toString() === req.userId;
+      // Handle both populated and non-populated createdBy
+      let createdById = null;
+      if (document.createdBy) {
+        // If populated, it will be an object with _id
+        // If not populated, it will be an ObjectId directly
+        createdById = document.createdBy._id || document.createdBy;
+      }
+      
+      // Convert both to strings for reliable comparison
+      const createdByIdStr = createdById ? createdById.toString() : null;
+      const userIdStr = req.userId ? req.userId.toString() : null;
+      const isOwner = createdByIdStr && userIdStr && createdByIdStr === userIdStr;
       const isAdmin = req.userRole === "admin";
 
       if (!isOwner && !isAdmin) {
