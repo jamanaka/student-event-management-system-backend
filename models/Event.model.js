@@ -159,6 +159,26 @@ EventSchema.pre("save", function (next) {
       this.currentAttendees = 0;
     }
 
+    // Validate end date/time is at least 15 minutes after start date/time
+    if (this.date && this.time && this.endDate && this.endTime) {
+      const startDateStr = this.date instanceof Date 
+        ? `${this.date.getFullYear()}-${String(this.date.getMonth() + 1).padStart(2, '0')}-${String(this.date.getDate()).padStart(2, '0')}`
+        : this.date.split('T')[0];
+      const startDateTime = new Date(`${startDateStr}T${this.time}`);
+      
+      const endDateStr = this.endDate instanceof Date
+        ? `${this.endDate.getFullYear()}-${String(this.endDate.getMonth() + 1).padStart(2, '0')}-${String(this.endDate.getDate()).padStart(2, '0')}`
+        : this.endDate.split('T')[0];
+      const endDateTime = new Date(`${endDateStr}T${this.endTime}`);
+      
+      const minDurationMs = 15 * 60 * 1000; // 15 minutes in milliseconds
+      const timeDifference = endDateTime - startDateTime;
+      
+      if (timeDifference < minDurationMs) {
+        return next(new Error("Event end date and time must be at least 15 minutes after the start date and time"));
+      }
+    }
+
     if (next && typeof next === 'function') {
       next();
     }

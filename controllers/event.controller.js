@@ -14,6 +14,8 @@ const createEvent = async (req, res, next) => {
       description,
       date,
       time,
+      endDate,
+      endTime,
       location,
       category,
       capacity,
@@ -22,12 +24,26 @@ const createEvent = async (req, res, next) => {
       imageUrl,
     } = req.body;
 
-    // Validate date is in the future
+    // Validate start date is in the future
     const eventDate = new Date(date);
     if (eventDate <= new Date()) {
       return next(
-        new AppError("Event date must be in the future", 400, "INVALID_DATE")
+        new AppError("Event start date must be in the future", 400, "INVALID_DATE")
       );
+    }
+
+    // Validate end date/time is at least 15 minutes after start date/time
+    if (endDate && endTime) {
+      const startDateTime = new Date(`${date}T${time}`);
+      const endDateTime = new Date(`${endDate}T${endTime}`);
+      const minDurationMs = 15 * 60 * 1000; // 15 minutes in milliseconds
+      const timeDifference = endDateTime - startDateTime;
+      
+      if (timeDifference < minDurationMs) {
+        return next(
+          new AppError("Event end date and time must be at least 15 minutes after the start date and time", 400, "INVALID_END_DATE")
+        );
+      }
     }
 
     // Create event
@@ -36,6 +52,8 @@ const createEvent = async (req, res, next) => {
       description,
       date: eventDate,
       time,
+      endDate: endDate ? new Date(endDate) : undefined,
+      endTime,
       location,
       category: category || "other",
       capacity: capacity || 50,
@@ -267,17 +285,37 @@ const updateEvent = async (req, res, next) => {
       return next(new AppError("Event not found", 404, "EVENT_NOT_FOUND"));
     }
 
-    // Check if date is being updated to past
+    // Check if start date is being updated to past
     if (updateData.date && new Date(updateData.date) <= new Date()) {
       return next(
-        new AppError("Event date must be in the future", 400, "INVALID_DATE")
+        new AppError("Event start date must be in the future", 400, "INVALID_DATE")
       );
+    }
+
+    // Validate end date/time is at least 15 minutes after start date/time if both are being updated
+    if (updateData.endDate && updateData.endTime) {
+      const startDate = updateData.date || event.date;
+      const startTime = updateData.time || event.time;
+      const startDateTime = new Date(`${startDate}T${startTime}`);
+      const endDateTime = new Date(`${updateData.endDate}T${updateData.endTime}`);
+      const minDurationMs = 15 * 60 * 1000; // 15 minutes in milliseconds
+      const timeDifference = endDateTime - startDateTime;
+      
+      if (timeDifference < minDurationMs) {
+        return next(
+          new AppError("Event end date and time must be at least 15 minutes after the start date and time", 400, "INVALID_END_DATE")
+        );
+      }
     }
 
     // Update event
     Object.keys(updateData).forEach((key) => {
       if (key !== "status" || req.userRole === "admin") {
-        event[key] = updateData[key];
+        if (key === "date" || key === "endDate") {
+          event[key] = new Date(updateData[key]);
+        } else {
+          event[key] = updateData[key];
+        }
       }
     });
 

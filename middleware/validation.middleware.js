@@ -189,22 +189,57 @@ const eventValidations = {
 
     body("date")
       .notEmpty()
-      .withMessage("Event date is required")
+      .withMessage("Event start date is required")
       .isISO8601()
-      .withMessage("Invalid date format")
+      .withMessage("Invalid start date format. Please provide a valid date (YYYY-MM-DD)")
       .custom((value) => {
         const date = new Date(value);
         const now = new Date();
         return date > now;
       })
-      .withMessage("Event date must be in the future"),
+      .withMessage("Event start date must be in the future"),
 
     body("time")
       .trim()
       .notEmpty()
-      .withMessage("Event time is required")
+      .withMessage("Event start time is required")
       .matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/)
-      .withMessage("Invalid time format (HH:MM)"),
+      .withMessage("Invalid start time format. Please provide a valid time in HH:MM format (e.g., 14:30)"),
+
+    body("endDate")
+      .notEmpty()
+      .withMessage("Event end date is required")
+      .isISO8601()
+      .withMessage("Invalid end date format. Please provide a valid date (YYYY-MM-DD)")
+      .custom((value, { req }) => {
+        if (req.body.date) {
+          const startDate = new Date(req.body.date);
+          const endDate = new Date(value);
+          startDate.setHours(0, 0, 0, 0);
+          endDate.setHours(0, 0, 0, 0);
+          return endDate >= startDate;
+        }
+        return true;
+      })
+      .withMessage("Event end date must be on or after the start date"),
+
+    body("endTime")
+      .trim()
+      .notEmpty()
+      .withMessage("Event end time is required")
+      .matches(/^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/)
+      .withMessage("Invalid end time format. Please provide a valid time in HH:MM format (e.g., 16:30)")
+      .custom((value, { req }) => {
+        if (req.body.date && req.body.time && req.body.endDate) {
+          const startDateTime = new Date(`${req.body.date}T${req.body.time}`);
+          const endDateTime = new Date(`${req.body.endDate}T${value}`);
+          const minDurationMs = 15 * 60 * 1000; // 15 minutes in milliseconds
+          const timeDifference = endDateTime - startDateTime;
+          return timeDifference >= minDurationMs;
+        }
+        return true;
+      })
+      .withMessage("Event end date and time must be at least 15 minutes after the start date and time"),
 
     body("location")
       .trim()
