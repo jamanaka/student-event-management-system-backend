@@ -173,3 +173,7 @@ server.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
   console.log("Allowed Origins:", allowedOrigins);
 });
+
+app.get("/", (req, res) => {
+  res.status(200).send("Student Event Management API is running 🚀");
+});
