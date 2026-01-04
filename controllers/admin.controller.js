@@ -9,9 +9,9 @@ const getAllUsers = async (req, res, next) => {
     const { page = 1, limit = 20, search, role, isActive } = req.query;
 
     // Build query
-    const query = {};
-    if (search) {
-      query.$or = [
+    const query = {}; 
+    if (search) { 
+      query.$or = [ 
         { firstName: { $regex: search, $options: "i" } },
         { lastName: { $regex: search, $options: "i" } },
         { email: { $regex: search, $options: "i" } },

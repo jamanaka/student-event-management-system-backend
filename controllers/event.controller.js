@@ -157,18 +157,18 @@ const getAllEvents = async (req, res, next) => {
     // Execute query
     const events = await Event.find(query)
       .populate("createdBy", "firstName lastName email department")
-      .sort(sortOptions)
-      .skip(skip)
-      .limit(limitNum);
+      .sort(sortOptions) 
+      .skip(skip) 
+      .limit(limitNum); 
 
     // Get total count
-    const total = await Event.countDocuments(query);
+    const total = await Event.countDocuments(query); 
 
     // Check if user is logged in to add RSVP status
     if (req.userId) {
       for (let event of events) {
         const hasRSVPed = await RSVP.hasRSVPed(event._id, req.userId);
-        event._doc.hasRSVPed = hasRSVPed;
+        event._doc.hasRSVPed = hasRSVPed; 
       }
     }
 
