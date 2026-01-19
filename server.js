@@ -10,6 +10,7 @@ const http = require("http");
 const ErrorHandler = require("./middleware/errorHandler");
 const { apiLimiter } = require("./middleware/rateLimiter");
 const requestId = require("./middleware/requestId");
+const AppError = require("./utils/AppError");
 
 // Import routes
 const authRoutes = require("./routes/auth.routes");
@@ -17,10 +18,49 @@ const eventRoutes = require("./routes/event.routes");
 const rsvpRoutes = require("./routes/rsvp.routes");
 const adminRoutes = require("./routes/admin.routes");
 
+// Validate required environment variables
+const requiredEnvVars = [
+  'MONGODBCONNECTIONSTRING',
+  'JWT_SECRET',
+  'JWT_REFRESH_SECRET'
+];
+
+const missingEnvVars = requiredEnvVars.filter(envVar => !process.env[envVar]);
+
+if (missingEnvVars.length > 0) {
+  console.error('❌ Missing required environment variables:', missingEnvVars.join(', '));
+  console.error('Please check your .env file and ensure all required variables are set.');
+  process.exit(1);
+}
+
+// Validate optional but recommended environment variables
+const recommendedEnvVars = [
+  'EMAIL_HOST',
+  'EMAIL_USER',
+  'EMAIL_PASSWORD',
+  'FRONTEND_LOCAL_URL',
+  'FRONTEND_PROD_URL'
+];
+
+const missingRecommendedVars = recommendedEnvVars.filter(envVar => !process.env[envVar]);
+
+if (missingRecommendedVars.length > 0) {
+  console.warn('⚠️  Missing recommended environment variables:', missingRecommendedVars.join(', '));
+  console.warn('Some features may not work properly without these variables.');
+}
+
+console.log('✅ Environment variables validated successfully');
+
 const app = express();
 
 // Request ID middleware (must be early)
 app.use(requestId);
+
+// Security headers (apply before CORS)
+app.use(helmet({
+  contentSecurityPolicy: false, // Allow inline styles/scripts for emails
+  crossOriginEmbedderPolicy: false,
+}));
 
 // CORS configuration (must be before other middleware to handle preflight requests)
 const allowedOrigins = [
@@ -37,14 +77,14 @@ app.use(
       if (!origin) {
         return callback(null, true);
       }
-      
+
       // In development, allow localhost origins
       if (process.env.NODE_ENV === "development") {
         if (origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:")) {
           return callback(null, true);
         }
       }
-      
+
       // Check against allowed origins
       if (allowedOrigins.includes(origin)) {
         callback(null, true);
@@ -68,12 +108,6 @@ app.use(
   })
 );
 
-// Security headers
-app.use(helmet({
-  contentSecurityPolicy: false, // Allow inline styles/scripts for emails
-  crossOriginEmbedderPolicy: false,
-}));
-
 // Body parsing
 app.use(bodyParser.json({ limit: "10mb" }));
 app.use(bodyParser.urlencoded({ extended: true, limit: "10mb" }));
@@ -88,49 +122,71 @@ if (process.env.NODE_ENV === "production") {
   app.use(morgan("dev"));
 }
 
-// Data sanitization - remove any keys that start with $ or contain .
-// This prevents NoSQL injection attacks
+// Data sanitization - prevent NoSQL injection attacks
 app.use((req, res, next) => {
   try {
-    const sanitizeObject = (obj) => {
-      if (!obj || typeof obj !== 'object' || obj === null) {
-        return;
+    const sanitizeObject = (obj, depth = 0) => {
+      // Prevent deep recursion attacks
+      if (depth > 10) {
+        throw new Error('Object too deeply nested');
       }
-      
+
+      if (!obj || typeof obj !== 'object' || obj === null) {
+        return obj;
+      }
+
       // Handle arrays
       if (Array.isArray(obj)) {
-        obj.forEach(item => sanitizeObject(item));
-        return;
+        return obj.map(item => sanitizeObject(item, depth + 1));
       }
-      
+
       // Handle regular objects
-      const keysToDelete = [];
+      const sanitized = {};
+      const dangerousKeys = [];
+
       Object.keys(obj).forEach(key => {
-        // Mark keys that start with $ (MongoDB operators) or contain . for deletion
-        if (key.startsWith('$') || key.includes('.')) {
-          keysToDelete.push(key);
-        } else if (typeof obj[key] === 'object' && obj[key] !== null) {
-          sanitizeObject(obj[key]);
+        // Block MongoDB operators (keys starting with $)
+        if (key.startsWith('$')) {
+          dangerousKeys.push(key);
+          return;
+        }
+
+        // Allow dots in field names but validate they're reasonable
+        // Block extremely long keys or keys with multiple dots that might be injection attempts
+        if (key.length > 100 || (key.match(/\./g) || []).length > 3) {
+          dangerousKeys.push(key);
+          return;
+        }
+
+        // Recursively sanitize nested objects
+        if (typeof obj[key] === 'object' && obj[key] !== null) {
+          sanitized[key] = sanitizeObject(obj[key], depth + 1);
+        } else {
+          sanitized[key] = obj[key];
         }
       });
-      
-      // Delete marked keys
-      keysToDelete.forEach(key => delete obj[key]);
+
+      // Log dangerous keys for monitoring (only in development)
+      if (dangerousKeys.length > 0 && process.env.NODE_ENV === 'development') {
+        console.warn('Blocked potentially dangerous keys:', dangerousKeys);
+      }
+
+      return sanitized;
     };
 
+    // Sanitize request data
     if (req.body && typeof req.body === 'object') {
-      sanitizeObject(req.body);
+      req.body = sanitizeObject(req.body);
     }
     if (req.query && typeof req.query === 'object') {
-      sanitizeObject(req.query);
+      req.query = sanitizeObject(req.query);
     }
-    if (req.params && typeof req.params === 'object') {
-      sanitizeObject(req.params);
-    }
-    
+    // Note: req.params are typically route parameters and should be validated by route handlers
+
     next();
   } catch (error) {
-    next(error);
+    console.error('Sanitization error:', error);
+    return next(new AppError('Invalid request data', 400, 'INVALID_REQUEST_DATA'));
   }
 });
 
@@ -142,6 +198,11 @@ app.get("/api/health", (req, res) => {
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
   });
+});
+
+// Root endpoint
+app.get("/", (req, res) => {
+  res.status(200).send("Student Event Management API is running 🚀");
 });
 
 // 2) ROUTES
@@ -172,8 +233,4 @@ const server = http.createServer(app);
 server.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
   console.log("Allowed Origins:", allowedOrigins);
-});
-
-app.get("/", (req, res) => {
-  res.status(200).send("Student Event Management API is running 🚀");
 });

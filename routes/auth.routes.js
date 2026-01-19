@@ -33,7 +33,7 @@ router.post(
   authValidations.resendOTP, // Only email validation needed
   requestPasswordReset
 );
-router.post("/reset-password", passwordResetLimiter, resetPassword);
+router.post("/reset-password", passwordResetLimiter, authValidations.resetPassword, resetPassword);
 router.put("/update-profile", protect, updateProfile);
 router.put(
   "/change-password",

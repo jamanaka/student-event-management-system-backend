@@ -120,7 +120,6 @@ UserSchema.statics.findByEmail = function (email) {
 };
 
 // Indexes for better query performance
-UserSchema.index({ email: 1 }); // Explicit index for email lookups
 UserSchema.index({ role: 1, isActive: 1 }); // For admin user queries
 UserSchema.index({ createdAt: -1 }); // For sorting users by creation date
 

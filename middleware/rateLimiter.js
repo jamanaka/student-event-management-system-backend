@@ -31,14 +31,14 @@ const apiLimiter = rateLimit({
   },
 });
 
-// Strict rate limiter for auth endpoints
+// Rate limiter for auth endpoints - more reasonable limits
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // Limit each IP to 5 requests per windowMs
+  max: 10, // Allow 10 attempts per 15 minutes (increased from 5)
   message: {
     success: false,
     error: {
-      message: "Too many authentication attempts, please try again later.",
+      message: "Too many authentication attempts, please try again in 15 minutes.",
       code: "TOO_MANY_AUTH_ATTEMPTS",
     },
   },
@@ -47,14 +47,14 @@ const authLimiter = rateLimit({
   skipSuccessfulRequests: true, // Don't count successful requests
 });
 
-// OTP rate limiter
+// OTP rate limiter - more reasonable for user experience
 const otpLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
-  max: 3, // Limit each IP to 3 OTP requests per hour
+  max: 5, // Allow 5 OTP requests per hour (increased from 3)
   message: {
     success: false,
     error: {
-      message: "Too many OTP requests, please try again later.",
+      message: "Too many OTP requests. Please wait before requesting another code.",
       code: "TOO_MANY_OTP_REQUESTS",
     },
   },
