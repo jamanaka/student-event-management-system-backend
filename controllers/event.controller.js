@@ -80,6 +80,28 @@ const createEvent = async (req, res, next) => {
 // Get All Events (Public - defaults to approved, Admin can filter by status)
 const getAllEvents = async (req, res, next) => {
   try {
+    // Auto-expire pending events that have passed their date
+    const now = new Date();
+    const expiredEvents = await Event.find({
+      status: "pending",
+      date: { $lt: now }
+    });
+
+    if (expiredEvents.length > 0) {
+      await Event.updateMany(
+        {
+          status: "pending",
+          date: { $lt: now }
+        },
+        {
+          status: "cancelled",
+          rejectionReason: "Event automatically cancelled due to expired approval deadline"
+        }
+      );
+
+      console.log(`Auto-expired ${expiredEvents.length} pending events in getAllEvents`);
+    }
+
     const {
       category,
       status,
@@ -151,7 +173,7 @@ const getAllEvents = async (req, res, next) => {
         sortOptions.createdAt = -1;
         break;
       default:
-        sortOptions.date = 1; // ascending by default
+        sortOptions.createdAt = -1; // newest first by default
     }
 
     // Execute query
@@ -188,7 +210,35 @@ const getAllEvents = async (req, res, next) => {
 // Get Pending Events (Admin Only)
 const getPendingEvents = async (req, res, next) => {
   try {
-    const events = await Event.find({ status: "pending" })
+    const now = new Date();
+
+    // First, automatically expire events that have passed their date
+    const expiredEvents = await Event.find({
+      status: "pending",
+      date: { $lt: now }
+    });
+
+    if (expiredEvents.length > 0) {
+      // Auto-expire events that have passed their date
+      await Event.updateMany(
+        {
+          status: "pending",
+          date: { $lt: now }
+        },
+        {
+          status: "cancelled",
+          rejectionReason: "Event automatically cancelled due to expired approval deadline"
+        }
+      );
+
+      console.log(`Auto-expired ${expiredEvents.length} pending events that have passed their date`);
+    }
+
+    // Now fetch remaining pending events (only future events)
+    const events = await Event.find({
+      status: "pending",
+      date: { $gte: now }
+    })
       .populate("createdBy", "firstName lastName email studentId department")
       .sort({ createdAt: -1 });
 
@@ -196,6 +246,7 @@ const getPendingEvents = async (req, res, next) => {
       success: true,
       count: events.length,
       data: events,
+      expiredCount: expiredEvents.length
     });
   } catch (error) {
     next(error);

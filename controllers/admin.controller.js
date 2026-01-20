@@ -234,9 +234,14 @@ const getSystemStats = async (req, res, next) => {
       },
     ]);
 
-    // Get recent activity (last 7 days)
+    // Get recent activity (last 7 days and today)
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayEnd = new Date();
+    todayEnd.setHours(23, 59, 59, 999);
 
     const recentEvents = await Event.countDocuments({
       createdAt: { $gte: sevenDaysAgo },
@@ -244,6 +249,22 @@ const getSystemStats = async (req, res, next) => {
 
     const recentUsers = await User.countDocuments({
       createdAt: { $gte: sevenDaysAgo },
+    });
+
+    // Get today's activity
+    const eventsApprovedToday = await Event.countDocuments({
+      status: "approved",
+      updatedAt: { $gte: todayStart, $lte: todayEnd }
+    });
+
+    const eventsRejectedToday = await Event.countDocuments({
+      status: "rejected",
+      updatedAt: { $gte: todayStart, $lte: todayEnd }
+    });
+
+    const rsvpsToday = await RSVP.countDocuments({
+      status: "attending",
+      createdAt: { $gte: todayStart, $lte: todayEnd }
     });
 
     res.status(200).json({
@@ -269,6 +290,11 @@ const getSystemStats = async (req, res, next) => {
           eventsCreated: recentEvents,
           usersRegistered: recentUsers,
           period: "7 days",
+        },
+        todayActivity: {
+          eventsApproved: eventsApprovedToday,
+          eventsRejected: eventsRejectedToday,
+          rsvpsMade: rsvpsToday,
         },
       },
     });
