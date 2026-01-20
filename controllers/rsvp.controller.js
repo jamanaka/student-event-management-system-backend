@@ -87,18 +87,23 @@ const addRSVP = async (req, res, next) => {
       await existingRSVP.populate("event", "title date location");
 
       const user = await User.findById(userId);
-      await sendRSVPConfirmationEmail(
+
+      // Send success response immediately
+      res.status(200).json({
+        success: true,
+        message: "RSVP reactivated successfully",
+        data: existingRSVP,
+      });
+
+      // Send email asynchronously
+      sendRSVPConfirmationEmail(
         user.email,
         event.title,
         event.date.toLocaleDateString(),
         event.time,
         user.firstName
-      );
-
-      return res.status(200).json({
-        success: true,
-        message: "RSVP reactivated successfully",
-        data: existingRSVP,
+      ).catch((emailError) => {
+        console.error("Failed to send RSVP reactivation email:", emailError);
       });
     }
 
@@ -118,18 +123,23 @@ const addRSVP = async (req, res, next) => {
     await rsvp.populate("event", "title date location");
 
     const user = await User.findById(userId);
-    await sendRSVPConfirmationEmail(
+
+    // Send success response immediately
+    res.status(201).json({
+      success: true,
+      message: "Successfully RSVPed to event",
+      data: rsvp,
+    });
+
+    // Send email asynchronously
+    sendRSVPConfirmationEmail(
       user.email,
       event.title,
       event.date.toLocaleDateString(),
       event.time,
       user.firstName
-    );
-
-    res.status(201).json({
-      success: true,
-      message: "Successfully RSVPed to event",
-      data: rsvp,
+    ).catch((emailError) => {
+      console.error("Failed to send RSVP confirmation email:", emailError);
     });
   } catch (error) {
     if (error.code === 11000) {

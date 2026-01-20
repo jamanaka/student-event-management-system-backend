@@ -22,6 +22,8 @@ const createEvent = async (req, res, next) => {
       contactEmail,
       contactPhone,
       imageUrl,
+      isOnline,
+      tags,
     } = req.body;
 
     // Validate start date is in the future
@@ -60,6 +62,8 @@ const createEvent = async (req, res, next) => {
       contactEmail: contactEmail || req.userEmail,
       contactPhone,
       imageUrl,
+      isOnline: isOnline || false,
+      tags: tags || "",
       createdBy: req.userId,
       status: "pending",
     });

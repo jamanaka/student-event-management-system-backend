@@ -41,6 +41,23 @@ const EventSchema = new mongoose.Schema(
         "Please provide a valid time (HH:MM)",
       ],
     },
+    endDate: {
+      type: Date,
+      validate: {
+        validator: function (value) {
+          if (!value) return true; // Optional field
+          return value >= this.date; // End date must be on or after start date
+        },
+        message: "Event end date must be on or after the start date",
+      },
+    },
+    endTime: {
+      type: String,
+      match: [
+        /^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$/,
+        "Please provide a valid time (HH:MM)",
+      ],
+    },
     location: {
       type: String,
       required: [true, "Event location is required"],
@@ -93,6 +110,19 @@ const EventSchema = new mongoose.Schema(
     imageUrl: {
       type: String,
       default: "",
+    },
+
+    // Event Type
+    isOnline: {
+      type: Boolean,
+      default: false,
+    },
+
+    // Tags
+    tags: {
+      type: String, // Comma-separated tags
+      default: "",
+      maxlength: [500, "Tags cannot exceed 500 characters"],
     },
 
     // Organizer Information

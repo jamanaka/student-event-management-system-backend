@@ -62,10 +62,10 @@ const register = async (req, res, next) => {
 
     await user.save();
 
-    // Generate and send OTP
+    // Generate OTP
     const otpCode = await OTP.createOTP(email, "registration", user._id);
 
-    await sendRegistrationOTP(email, otpCode, `${firstName} ${lastName}`);
+    // Send success response immediately (don't wait for email)
     res.status(201).json({
       success: true,
       message:
@@ -75,6 +75,14 @@ const register = async (req, res, next) => {
         email: user.email,
       },
     });
+
+    // Send email asynchronously (don't block the response)
+    sendRegistrationOTP(email, otpCode, `${firstName} ${lastName}`)
+      .catch((emailError) => {
+        console.error("Failed to send registration OTP email:", emailError);
+        // Don't throw error here as user is already registered
+        // Maybe log to monitoring service or retry queue
+      });
   } catch (error) {
     console.error("Registration error:", error);
     if (error.code === 11000) {
@@ -157,14 +165,20 @@ const resendOTP = async (req, res, next) => {
       );
     }
 
-    // Generate and send new OTP
+    // Generate OTP
     const otpCode = await OTP.createOTP(email, "registration", user._id);
-    await sendRegistrationOTP(email, otpCode, `${user.firstName} ${user.lastName}`);
 
+    // Send success response immediately
     res.status(200).json({
       success: true,
       message: "OTP resent successfully. Please check your email.",
     });
+
+    // Send email asynchronously
+    sendRegistrationOTP(email, otpCode, `${user.firstName} ${user.lastName}`)
+      .catch((emailError) => {
+        console.error("Failed to send OTP resend email:", emailError);
+      });
   } catch (error) {
     next(error);
   }
@@ -263,12 +277,17 @@ const requestPasswordReset = async (req, res, next) => {
     // Generate OTP for password reset
     const otpCode = await OTP.createOTP(email, "password_reset", user._id);
 
-    await sendPasswordResetOTP(email, otpCode, user.firstName);
-
+    // Send success response immediately
     res.status(200).json({
       success: true,
       message: "Password reset OTP sent to your email",
     });
+
+    // Send email asynchronously
+    sendPasswordResetOTP(email, otpCode, user.firstName)
+      .catch((emailError) => {
+        console.error("Failed to send password reset OTP email:", emailError);
+      });
   } catch (error) {
     next(error);
   }
