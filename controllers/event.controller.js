@@ -187,14 +187,40 @@ const getAllEvents = async (req, res, next) => {
       .skip(skip) 
       .limit(limitNum); 
 
-    // Get total count
-    const total = await Event.countDocuments(query); 
+    // Get total count for current filters
+    const total = await Event.countDocuments(query);
+
+    // Get overall stats (not filtered by upcoming/search/category)
+    const baseQuery = { status: "approved" }; // Only count approved events for public stats
+    const totalEvents = await Event.countDocuments(baseQuery);
+
+    // Get upcoming events (future events)
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    todayStart.setMinutes(0);
+    todayStart.setSeconds(0);
+    todayStart.setMilliseconds(0);
+    const upcomingQuery = { ...baseQuery, date: { $gte: todayStart } };
+    const upcomingEvents = await Event.countDocuments(upcomingQuery);
+
+    // Get today's events
+    const todayEnd = new Date(todayStart);
+    todayEnd.setHours(23, 59, 59, 999);
+    const todayQuery = {
+      ...baseQuery,
+      date: { $gte: todayStart, $lte: todayEnd }
+    };
+    const todayEvents = await Event.countDocuments(todayQuery);
+
+    // Get unique categories count
+    const categoriesCount = await Event.distinct('category', baseQuery);
+    const categories = categoriesCount.length;
 
     // Check if user is logged in to add RSVP status
     if (req.userId) {
       for (let event of events) {
         const hasRSVPed = await RSVP.hasRSVPed(event._id, req.userId);
-        event._doc.hasRSVPed = hasRSVPed; 
+        event._doc.hasRSVPed = hasRSVPed;
       }
     }
 
@@ -205,6 +231,12 @@ const getAllEvents = async (req, res, next) => {
       totalPages: Math.ceil(total / limitNum),
       currentPage: parseInt(page),
       data: events,
+      stats: {
+        totalEvents,
+        upcomingEvents,
+        todayEvents,
+        categories
+      }
     });
   } catch (error) {
     next(error);
