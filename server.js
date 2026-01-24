@@ -66,8 +66,8 @@ app.use(helmet({
 const allowedOrigins = [
   process.env.FRONTEND_LOCAL_URL,
   process.env.FRONTEND_PROD_URL,
-  "http://localhost:3000", // Default React dev server
-  "http://127.0.0.1:3000", // Alternative localhost
+  "http://localhost:3001", // Default React dev server
+  "http://127.0.0.1:3001", // Alternative localhost
 ].filter(Boolean); // Remove undefined values
 
 app.use(
